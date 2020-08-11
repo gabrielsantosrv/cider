@@ -18,18 +18,14 @@ class CiderD:
     Main Class to compute the CIDEr metric
 
     """
-    def __init__(self, n=4, sigma=6.0, df="corpus", alpha=None, penalize_repetition=False):
-        print("====CIDER alpha", alpha)
-        print("====CIDER penalize_repetition", penalize_repetition)
+    def __init__(self, n=4, sigma=6.0, df="corpus"):
         # set cider to sum over 1 to 4-grams
         self._n = n
         # set the standard deviation parameter for gaussian penalty
         self._sigma = sigma
         # set which where to compute document frequencies from
         self._df = df
-        self.cider_scorer = CiderScorer(n=self._n, df_mode=self._df, alpha=alpha,
-                                        penalize_repetition=penalize_repetition)
-
+        self.cider_scorer = CiderScorer(n=self._n, df_mode=self._df)
 
     def compute_score(self, gts, res):
         """
@@ -60,4 +56,3 @@ class CiderD:
 
     def method(self):
         return "CIDEr-D"
-

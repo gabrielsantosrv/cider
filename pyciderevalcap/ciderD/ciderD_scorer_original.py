@@ -7,23 +7,12 @@ from __future__ import print_function
 
 import copy
 from collections import defaultdict
-from collections import Counter
 import numpy as np
 import pdb
 import math
 import six
 from six.moves import cPickle
 import os
-
-from nltk.corpus import stopwords
-from nltk.tokenize import RegexpTokenizer
-
-stopwords_ = None
-
-def init_stopwords():
-    global stopwords_
-    stopwords_ = stopwords_ or list(stopwords.words('portuguese'))
-    
 
 def precook(s, n=4, out=False):
     """
@@ -67,24 +56,22 @@ class CiderScorer(object):
 
     def copy(self):
         ''' copy the refs.'''
-        new = CiderScorer(n=self.n, sigma=self.sigma, alpha=self.alpha, penalize_repetition=self.penalize_repetition)
+        new = CiderScorer(n=self.n)
         new.ctest = copy.copy(self.ctest)
         new.crefs = copy.copy(self.crefs)
         return new
 
     def copy_empty(self):
-        new = CiderScorer(df_mode="corpus", n=self.n, sigma=self.sigma, alpha=self.alpha, penalize_repetition=self.penalize_repetition)
+        new = CiderScorer(df_mode="corpus", n=self.n, sigma=self.sigma)
         new.df_mode = self.df_mode
         new.ref_len = self.ref_len
         new.document_frequency = self.document_frequency
         return new
 
-    def __init__(self, df_mode="corpus", test=None, refs=None, n=4, sigma=6.0, alpha=None, penalize_repetition=False):
+    def __init__(self, df_mode="corpus", test=None, refs=None, n=4, sigma=6.0):
         ''' singular instance '''
         self.n = n
         self.sigma = sigma
-        self.test = []
-        self.refs = []
         self.crefs = []
         self.ctest = []
         self.df_mode = df_mode
@@ -94,23 +81,15 @@ class CiderScorer(object):
             self.ref_len = np.log(float(pkl_file['ref_len']))
             self.document_frequency = pkl_file['document_frequency']
         self.cook_append(test, refs)
-        self.alpha = alpha
-        self.penalize_repetition = penalize_repetition
-        init_stopwords()
-
-
+    
     def clear(self):
         self.crefs = []
         self.ctest = []
-        self.refs = []
-        self.test = []
 
     def cook_append(self, test, refs):
         '''called by constructor and __iadd__ to avoid creating new instances.'''
 
         if refs is not None:
-            self.refs.append(refs)
-            self.test.append(test)
             self.crefs.append(cook_refs(refs))
             if test is not None:
                 self.ctest.append(cook_test(test)) ## N.B.: -1
@@ -172,39 +151,7 @@ class CiderScorer(object):
             norm = [np.sqrt(n) for n in norm]
             return vec, norm, length
 
-        def compute_penalty_by_repetition(hyp, ref):
-            #tokenize only words
-            tokenizer = RegexpTokenizer(r'[A-Za-z]+')
-            tokens_hyp = tokenizer.tokenize(hyp)
-            clean_hyp = [token for token in tokens_hyp if token not in stopwords_]
-
-            tokens_ref = tokenizer.tokenize(ref[0])
-            clean_ref = [token for token in tokens_ref if token not in stopwords_]
-
-            word_freq_hyp = Counter(clean_hyp)
-            word_freq_ref = Counter(clean_ref)
-
-            sum = 0
-            counter = 0
-            for word, freq in word_freq_hyp.items():
-                #words in the hypothesis but that are not in the reference
-                if word_freq_ref.get(word, None) is None:
-                    diff = freq
-                else:
-                    diff = abs(word_freq_ref[word] - freq)
-
-                if diff > 0:
-                    sum += np.exp(1 / diff)
-                    counter += 1
-
-            if counter > 0:
-                return sum / (np.e * counter)
-
-            #no penalty
-            return 1
-
-        def sim(sent_hyp, vec_hyp, sent_ref, vec_ref, norm_hyp, norm_ref, length_hyp, length_ref, alpha=None,
-                    penalize_repetition=False):
+        def sim(vec_hyp, vec_ref, norm_hyp, norm_ref, length_hyp, length_ref):
             '''
             Compute the cosine similarity of two vectors.
             :param vec_hyp: array of dictionary for vector corresponding to hypothesis
@@ -228,19 +175,8 @@ class CiderScorer(object):
                     val[n] /= (norm_hyp[n]*norm_ref[n])
 
                 assert(not math.isnan(val[n]))
-
-                
-                if alpha is None:
-                    # vrama91: added a length based gaussian penalty
-                    val[n] *= np.e**(-(delta**2)/(2*self.sigma**2))
-                else:
-                    #val[n] *= np.e ** (-abs(delta)/float(length_ref))
-                    val[n] *= np.e ** (-(delta**2)/(float(alpha)*float(length_ref)**2))
-
-                if n == 0 and penalize_repetition:
-                    penalty = compute_penalty_by_repetition(sent_hyp, sent_ref)
-                    val[n] = val[n]*penalty
-
+                # vrama91: added a length based gaussian penalty
+                val[n] *= np.e**(-(delta**2)/(2*self.sigma**2))
             return val
 
         # compute log reference length
@@ -251,15 +187,14 @@ class CiderScorer(object):
         #    self.ref_len = np.log(float(40504))
 
         scores = []
-        for i, (test, refs) in enumerate(zip(self.ctest, self.crefs)):
+        for test, refs in zip(self.ctest, self.crefs):
             # compute vector for test captions
             vec, norm, length = counts2vec(test)
             # compute vector for ref captions
             score = np.array([0.0 for _ in range(self.n)])
             for ref in refs:
                 vec_ref, norm_ref, length_ref = counts2vec(ref)
-                score += sim(self.test[i], vec, self.refs[i], vec_ref, norm, norm_ref, length, length_ref,
-                             alpha=self.alpha, penalize_repetition=self.penalize_repetition)
+                score += sim(vec, vec_ref, norm, norm_ref, length, length_ref)
             # change by vrama91 - mean of ngram scores, instead of sum
             score_avg = np.mean(score)
             # divide by number of references
@@ -283,4 +218,3 @@ class CiderScorer(object):
         # debug
         # print score
         return np.mean(np.array(score)), np.array(score)
-
