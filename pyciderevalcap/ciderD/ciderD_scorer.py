@@ -173,34 +173,29 @@ class CiderScorer(object):
             return vec, norm, length
 
         def compute_penalty_by_repetition(hyp, ref):
-            #tokenize only words
+            # tokenize only words
             tokenizer = RegexpTokenizer(r'[A-Za-z]+')
             tokens_hyp = tokenizer.tokenize(hyp)
-            clean_hyp = [token for token in tokens_hyp if token not in stopwords_]
+            # clean_hyp = [token for token in tokens_hyp if token not in stopwords_]
 
             tokens_ref = tokenizer.tokenize(ref[0])
-            clean_ref = [token for token in tokens_ref if token not in stopwords_]
+            # clean_ref = [token for token in tokens_ref if token not in stopwords_]
 
-            word_freq_hyp = Counter(clean_hyp)
-            word_freq_ref = Counter(clean_ref)
+            word_freq_hyp = Counter(tokens_hyp)
+            word_freq_ref = Counter(tokens_ref)
 
             sum = 0
             counter = 0
             for word, freq in word_freq_hyp.items():
-                #words in the hypothesis but that are not in the reference
-                if word_freq_ref.get(word, None) is None:
-                    diff = freq
-                else:
+                # words in the hypothesis but that are not in the reference
+                if word_freq_ref.get(word, None) is not None:
                     diff = abs(word_freq_ref[word] - freq)
-
-                if diff > 0:
-                    sum += np.exp(1 / diff)
+                    sum += np.exp(1 / (1 + diff))
                     counter += 1
 
-            if counter > 0:
-                return sum / (np.e * counter)
+            return 1 if counter == 0 else sum / (np.e * counter)
 
-            #no penalty
+            # no penalty
             return 1
 
         def sim(sent_hyp, vec_hyp, sent_ref, vec_ref, norm_hyp, norm_ref, length_hyp, length_ref, alpha=None,
